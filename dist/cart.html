@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>سلة التسوق | ARAB STORE</title>
+<link rel="manifest" href="/manifest.json">
+<link rel="icon" href="/site-icon">
+<link rel="apple-touch-icon" href="/site-icon">
+<meta name="theme-color" content="#e63946">
+<meta name="description" content="سلة التسوق في ARAB STORE — اجمع منتجاتك وادفع مرة واحدة مع كوبونات الخصم ونقاط الولاء.">
+<meta property="og:title" content="سلة التسوق | ARAB STORE">
+<meta property="og:description" content="اجمع منتجاتك وادفع مرة واحدة — ARAB STORE">
+<meta property="og:type" content="website">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="canonical" href="/store.html">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+<link rel="stylesheet" href="css/style.css?v=22">
+</head>
+<body>
+<div id="drawer" class="drawer">
+  <div class="drawer-user">
+    <div class="drawer-avatar"><i class="fa-solid fa-user"></i></div>
+    <div id="drawerUserName" class="drawer-user-name">زائر</div>
+    <div id="drawerUserEmail" class="drawer-user-email">سجّل دخولك للاستفادة من المحفظة والطلبات</div>
+    <div id="drawerAuthButtons" style="display:flex; flex-direction:column;">
+      <button class="drawer-btn primary" onclick="goLogin(event)"><i class="fa-solid fa-right-to-bracket"></i> تسجيل دخول</button>
+      <button class="drawer-btn ghost" onclick="goRegister(event)"><i class="fa-solid fa-user-plus"></i> حساب جديد</button>
+    </div>
+    <div id="logoutBox" style="display:none; margin-top:8px;">
+      <button class="drawer-btn ghost" onclick="logoutUser(event)"><i class="fa-solid fa-right-from-bracket"></i> تسجيل خروج</button>
+    </div>
+  </div>
+  <div class="guest-hide">
+    <div class="drawer-group-label">رئيسي</div>
+    <a href="/store.html" class="drawer-item"><i class="fa-solid fa-house"></i> الرئيسية</a>
+    <a href="/cart.html" class="drawer-item"><i class="fa-solid fa-cart-shopping"></i> سلة التسوق</a>
+    <a href="/orders.html" class="drawer-item"><i class="fa-solid fa-bag-shopping"></i> طلباتي</a>
+    <a href="/wallet.html" class="drawer-item"><i class="fa-solid fa-wallet"></i> المحفظة</a>
+    <a href="/deposit.html" class="drawer-item"><i class="fa-solid fa-credit-card"></i> إيداع رصيد</a>
+  </div>
+  <div class="drawer-group-label">معلومات</div>
+  <a href="https://t.me/aboudy2312" target="_blank" class="drawer-item"><i class="fa-brands fa-telegram"></i> الدعم (تيليجرام)</a>
+  <a href="https://wa.me/96181302718" target="_blank" class="drawer-item"><i class="fa-brands fa-whatsapp"></i> الدعم (واتساب)</a>
+  <div class="toggle-row"><button onclick="toggleTheme()" aria-label="تبديل المظهر"><i class="fa-solid fa-moon"></i> الوضع الليلي</button></div>
+</div>
+<div id="overlay" class="overlay" onclick="toggleDrawer(false)"></div>
+<div class="topbar">
+  <div class="topbar-inner">
+    <div class="left-group">
+      <div class="menu-btn" onclick="toggleDrawer(true)"><span></span><span></span><span></span></div>
+      <div class="logo"><div class="logo-word">ARAB <b>STORE</b></div></div>
+    </div>
+    <div class="user-box">
+      <div class="icon-btn" id="notifBellBtn" aria-label="الإشعارات"><i class="fa-solid fa-bell"></i><span class="badge-dot" id="notifBadge" style="display:none;">0</span></div>
+      <div class="balance-pill"><i class="fa-solid fa-coins"></i><span id="balancePillValue">$0.00</span></div>
+    </div>
+  </div>
+</div>
+<div class="container">
+  <div class="page-head">
+    <h1><i class="fa-solid fa-cart-shopping" style="color:var(--accent)"></i> سلة التسوق</h1>
+    <p>اجمع عدة منتجات وادفعها دفعة واحدة</p>
+  </div>
+  <div id="cartList"></div>
+  <div class="card" style="margin-top:12px;">
+    <label for="couponInput" style="font-weight:700;">كوبون الخصم (اختياري)</label>
+    <div style="display:flex;gap:8px;margin-top:8px;">
+      <input id="couponInput" placeholder="مثال: WELCOME10" style="flex:1;padding:10px;border-radius:10px;border:1px solid #2a3350;background:#0f1424;color:#fff;">
+      <button class="drawer-btn primary" style="width:auto;padding:10px 18px;" onclick="applyCouponPreview()">تحقق</button>
+    </div>
+    <div id="couponMsg" class="text-muted" style="margin-top:6px;font-size:13px;"></div>
+  </div>
+  <div class="card" style="margin-top:12px;display:flex;gap:8px;">
+    <button class="drawer-btn primary" style="flex:1;" onclick="checkoutCart()"><i class="fa-solid fa-circle-check"></i> إتمام الشراء</button>
+    <button class="drawer-btn ghost" style="flex:1;" onclick="clearCart()"><i class="fa-solid fa-trash"></i> إفراغ السلة</button>
+  </div>
+  <p class="text-muted" style="font-size:13px;">تُكسب نقطة ولاء مقابل كل 10$ مشتريات، وكل 20 نقطة = 1$ رصيد.</p>
+</div>
+<nav class="bottom-nav" aria-label="التنقل السفلي">
+  <a href="/store.html"><i class="fa-solid fa-house"></i><span>الرئيسية</span></a>
+  <a href="/cart.html" class="active"><i class="fa-solid fa-cart-shopping"></i><span>السلة</span></a>
+  <a href="/deposit.html"><i class="fa-solid fa-credit-card"></i><span>إيداع</span></a>
+  <a href="/orders.html"><i class="fa-solid fa-bag-shopping"></i><span>طلباتي</span></a>
+</nav>
+<script src="js/app.js?v=22"></script>
+<script>
+let appliedCoupon = "";
+async function loadCart(){
+  const box = document.getElementById("cartList");
+  if(!Store.token()){ box.innerHTML = '<div class="card">سجّل دخولك لعرض السلة. <a href="/login.html">تسجيل الدخول</a></div>'; return; }
+  let items = [];
+  try{ items = await Cart.list(); }catch(e){ box.innerHTML = '<div class="card">تعذر تحميل السلة: '+e.message+'</div>'; return; }
+  if(!items.length){ box.innerHTML = '<div class="card">سلتك فارغة. <a href="/store.html">تصفح المتجر</a></div>'; return; }
+  box.innerHTML = items.map(i=>'<div class="card" style="display:flex;gap:10px;align-items:center;margin-bottom:8px;">'
+    +'<div style="flex:1;"><b>'+escapeHtml(i.product_name||"")+' — '+escapeHtml(i.category_name||"")+'</b>'
+    +'<div class="text-muted" style="font-size:13px;">الكمية: '+i.qty+' | السعر: '+Currency.format(i.price_usd*(i.qty||1))+(i.player_id?' | ID: '+escapeHtml(i.player_id):'')+(i.server_id?' | سيرفر: '+escapeHtml(i.server_id):'')+'</div></div>'
+    +'<button class="drawer-btn ghost" style="width:auto;" onclick="removeItem('+i.id+')" aria-label="حذف من السلة"><i class="fa-solid fa-trash"></i></button></div>').join("");
+}
+function escapeHtml(s){ return String(s||"").replace(/[&<>"']/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
+async function removeItem(id){ try{ await Cart.remove(id); toast("تم حذف العنصر"); loadCart(); }catch(e){ toast(e.message); } }
+async function clearCart(){ if(!confirm("إفراغ السلة؟")) return; try{ await Cart.clear(); toast("تم إفراغ السلة"); loadCart(); }catch(e){ toast(e.message); } }
+async function applyCouponPreview(){
+  const code = document.getElementById("couponInput").value.trim();
+  const msg = document.getElementById("couponMsg");
+  if(!code){ msg.textContent = ""; appliedCoupon=""; return; }
+  try{
+    const r = await apiFetch("/coupons/validate?code="+encodeURIComponent(code));
+    appliedCoupon = r.code; msg.textContent = "كوبون صالح: خصم "+r.percent+"%";
+  }catch(e){ appliedCoupon=""; msg.textContent = e.message; }
+}
+async function checkoutCart(){
+  try{
+    const r = await Cart.checkout(appliedCoupon);
+    toast(r.message||"تم إنشاء الطلبات");
+    setTimeout(()=>location.href="/orders.html", 1200);
+  }catch(e){ toast(e.message); }
+}
+document.addEventListener("DOMContentLoaded", loadCart);
+</script>
+</body>
+</html>

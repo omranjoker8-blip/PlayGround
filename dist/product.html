@@ -1,0 +1,407 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>إتمام الطلب | ARAB STORE</title>
+<link rel="manifest" href="/manifest.json">
+<link rel="icon" href="/site-icon">
+<link rel="apple-touch-icon" href="/site-icon">
+<meta name="theme-color" content="#e63946">
+<meta name="description" content="ARAB STORE — متجر عربي لشحن الألعاب والخدمات الرقمية: أسعار منافسة، تسليم سريع، دفع آمن.">
+<meta property="og:title" content="ARAB STORE | شحن ألعاب وخدمات رقمية">
+<meta property="og:description" content="اشحن ألعابك وخدماتك الرقمية بسرعة وأمان — ARAB STORE">
+<meta property="og:type" content="website">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="canonical" href="/store.html">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+<link rel="stylesheet" href="css/style.css?v=15">
+</head>
+<body>
+
+<div id="drawer" class="drawer">
+  <div class="drawer-user">
+    <div class="drawer-avatar"><i class="fa-solid fa-user"></i></div>
+    <div id="drawerUserName" class="drawer-user-name">زائر</div>
+    <div id="drawerUserEmail" class="drawer-user-email">سجّل دخولك للاستفادة من المحفظة والطلبات</div>
+    <div id="drawerAuthButtons" style="display:flex; flex-direction:column;">
+      <button class="drawer-btn primary" onclick="goLogin(event)"><i class="fa-solid fa-right-to-bracket"></i> تسجيل دخول</button>
+      <button class="drawer-btn ghost" onclick="goRegister(event)"><i class="fa-solid fa-user-plus"></i> حساب جديد</button>
+    </div>
+    <div id="logoutBox" style="display:none; margin-top:8px;">
+      <button class="drawer-btn ghost" onclick="logoutUser(event)"><i class="fa-solid fa-right-from-bracket"></i> تسجيل خروج</button>
+    </div>
+  </div>
+  <div class="guest-hide">
+    <div class="drawer-group-label">رئيسي</div>
+    <a href="/store.html" class="drawer-item"><i class="fa-solid fa-house"></i> الرئيسية</a>
+    <a href="/cart.html" class="drawer-item"><i class="fa-solid fa-cart-shopping"></i> سلة التسوق</a>
+    <a href="/orders.html" class="drawer-item"><i class="fa-solid fa-bag-shopping"></i> طلباتي</a>
+    <a href="/wallet.html" class="drawer-item"><i class="fa-solid fa-wallet"></i> المحفظة</a>
+    <a href="/deposit.html" class="drawer-item"><i class="fa-solid fa-credit-card"></i> إيداع رصيد</a>
+  </div>
+  <div class="drawer-group-label">معلومات</div>
+  <a href="https://t.me/aboudy2312" target="_blank" class="drawer-item"><i class="fa-brands fa-telegram"></i> الدعم (تيليجرام)</a>
+  <a href="https://wa.me/96181302718" target="_blank" class="drawer-item"><i class="fa-brands fa-whatsapp"></i> الدعم (واتساب)</a>
+  <div class="toggle-row"><button onclick="toggleTheme()"><i class="fa-solid fa-moon"></i> الوضع الليلي</button></div>
+  <div class="drawer-footer"><img src="assets/dev-logo.png" alt="" alt="شعار المطور" class="dev-logo" onerror="this.style.display='none'"><div style="margin-top:6px;">برمجة وتصميم</div><a href="https://t.me/aboudy2312" target="_blank"><i class="fa-brands fa-telegram"></i> @aboudy2312</a><div style="margin-top:4px;">2026</div></div>
+</div>
+<div id="overlay" class="overlay" onclick="toggleDrawer(false)"></div>
+
+<div class="topbar">
+  <div class="topbar-inner">
+    <div class="left-group">
+      <div class="menu-btn" onclick="toggleDrawer(true)"><span></span><span></span><span></span></div>
+      <div class="logo"><div class="logo-word">ARAB <b>STORE</b></div></div>
+    </div>
+    <div class="user-box">
+      <div class="icon-btn" id="notifBellBtn" aria-label="الإشعارات"><i class="fa-solid fa-bell"></i><span class="badge-dot" id="notifBadge" style="display:none;">0</span></div>
+      <div class="balance-pill"><i class="fa-solid fa-coins"></i><span id="balancePillValue">$0.00</span></div>
+    </div>
+  </div>
+</div>
+
+<div class="container">
+  <div class="back-row">
+    <a href="#" onclick="history.back(); return false;" class="back-btn" aria-label="رجوع"><i class="fa-solid fa-arrow-right"></i></a>
+    <div class="back-title" id="productTitle">المنتج</div>
+    <button id="favBtn" class="drawer-btn ghost" style="width:auto;padding:8px 14px;" onclick="toggleFav()" aria-label="مفضلة"><i class="fa-regular fa-heart"></i> مفضلة</button>
+  </div>
+
+  <div id="loadingState" class="loader-fullpage">
+    <div class="loader-ring"></div>
+    <div class="store-name">ARAB <b>STORE</b></div>
+    <div class="msg">جاري تحميل الفئات...</div>
+  </div>
+
+  <div class="card" id="gameInfoCard" style="display:none;margin-top:10px;"><div id="gameDesc" style="font-size:13.5px;line-height:1.9;"></div><div id="gameIdHint" class="text-muted" style="font-size:12.5px;margin-top:6px;"></div></div>
+
+  <div id="purchaseForm" style="display:none;">
+    <div class="section-header" style="margin-top:6px;">
+      <div class="section-title">المنتجات</div>
+    </div>
+    <div id="packagesList" class="package-grid"></div>
+  </div>
+
+  <div class="card" id="ratingCard" style="margin-top:12px;"><h3><i class="fa-solid fa-star" style="color:#f5b301"></i> التقييم <span id="ratingAvg" class="text-muted"></span></h3><div id="ratingsList" class="text-muted" style="font-size:13px;">جاري التحميل...</div>
+    <div class="guest-hide" style="margin-top:8px;display:flex;gap:6px;align-items:center;"><label for="rateStars">قيّمنا:</label><select id="rateStars"><option value="5">5 ★</option><option value="4">4 ★</option><option value="3">3 ★</option><option value="2">2 ★</option><option value="1">1 ★</option></select><input id="rateComment" placeholder="تعليق (اختياري)" style="flex:1;padding:8px;border-radius:8px;border:1px solid #2a3350;background:#0f1424;color:#fff;"><button class="drawer-btn primary" style="width:auto;" onclick="sendRating()">إرسال</button></div></div>
+  <div class="card" style="margin-top:12px;"><h3>قد يعجبك أيضاً</h3><div id="recoRow" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:8px;"></div></div>
+  <div id="emptyState" style="display:none;" class="empty-state">
+    <i class="fa-solid fa-box-open"></i><div class="t">لا توجد فئات لهذا المنتج بعد</div>
+  </div>
+</div>
+
+<!-- ===== بوب-اب الشراء السريع ===== -->
+<div id="buySheetOverlay" class="buy-sheet-overlay" onclick="if(event.target===this) closeBuySheet();">
+  <div class="buy-sheet">
+    <div class="buy-sheet-head">
+      <div>
+        <div class="lbl">المنتج المختار</div>
+        <div class="name" id="bsName">—</div>
+      </div>
+      <div class="ic" id="bsArt"><i class="fa-solid fa-gamepad"></i></div>
+    </div>
+
+    <div class="field" id="bsPlayerIdBlock">
+      <label><i class="fa-solid fa-id-card" style="color:var(--accent);"></i> الايدي</label>
+      <div class="input-wrap">
+        <input type="text" id="bsPlayerId" placeholder="أدخل الايدي">
+        <i class="fa-solid fa-id-card"></i>
+      </div>
+    </div>
+
+    <div class="field" id="bsServerIdBlock" style="display:none;">
+      <label><i class="fa-solid fa-server" style="color:var(--accent);"></i> معرّف السيرفر/المنطقة <span class="text-muted">(Zone/Server ID)</span></label>
+      <div class="input-wrap">
+        <input type="text" id="bsServerId" placeholder="مثال: 12345678" inputmode="numeric">
+        <i class="fa-solid fa-server"></i>
+      </div>
+    </div>
+
+    <div class="field mt-10" id="bsQtyBlock" style="display:none;">
+      <label>الكمية</label>
+      <div class="buy-qty-row">
+        <button type="button" onclick="bsChangeQty(1)"><i class="fa-solid fa-plus"></i></button>
+        <input type="text" inputmode="numeric" id="bsQtyVal" value="1" oninput="bsQtyTyped(this.value)" onblur="bsQtyValidate()">
+        <button type="button" onclick="bsChangeQty(-1)"><i class="fa-solid fa-minus"></i></button>
+      </div>
+    </div>
+    <div class="field-hint" id="bsUnitHint" style="display:none; margin-top:7px;"></div>
+
+    <div class="buy-sheet-summary">
+      <div class="total"><div class="lbl">الإجمالي:</div><div class="val" id="bsTotal">0 ل.س</div></div>
+      <div class="bal"><div class="lbl">رصيدك:</div><div class="val" id="bsBalance">0 ل.س</div></div>
+    </div>
+
+    <div class="buy-sheet-warning" id="bsWarning" style="display:none;">
+      <i class="fa-solid fa-triangle-exclamation"></i> رصيد غير كافٍ
+    </div>
+
+    <div class="field"><label for="bsCoupon">كوبون الخصم (اختياري)</label><div class="input-wrap"><input type="text" id="bsCoupon" placeholder="WELCOME10"></div></div>
+    <div class="buy-sheet-actions">
+      <button class="btn-cancel" onclick="closeBuySheet()">إلغاء</button>
+      <button class="btn-cancel" id="bsCartBtn" onclick="addToCartFromSheet()" style="border:1px solid var(--accent);">السلة</button>
+      <button class="btn-confirm" id="bsConfirmBtn" onclick="confirmPurchase()">تأكيد الشراء</button>
+    </div>
+  </div>
+</div>
+
+<div class="bottom-nav">
+  <div class="nav-items">
+    <a href="/store.html" class="nav-item" id="navHome"><i class="fa-solid fa-house"></i><span>الرئيسية</span></a>
+    <a href="/wallet.html" class="nav-item" id="navWallet"><i class="fa-solid fa-wallet"></i><span>المحفظة</span></a>
+    <a href="/deposit.html" class="nav-item" id="navDeposit"><i class="fa-solid fa-credit-card"></i><span data-ar="إيداع" data-en="Deposit">إيداع</span></a>
+    <a href="/orders.html" class="nav-item" id="navOrders"><i class="fa-solid fa-bag-shopping"></i><span>طلباتي</span></a>
+  </div>
+</div>
+
+<script src="js/app.js?v=22"></script>
+<script>
+  const ART_POOL = ["art-red","art-gold","art-purple","art-green","art-blue","art-pink"];
+  function getParam(name){ return new URLSearchParams(location.search).get(name); }
+  const productId = getParam("id");
+
+  let packages = [];
+  let productImage = "";
+  let productEmoji = "";
+  let selected = null;
+  let qty = 1;
+
+  async function init(){
+    if(!productId){ location.href = "/store.html"; return; }
+    try{
+      const s = await apiFetch("/store/settings");
+      Currency.setRate(s.exchange_rate);
+    }catch(err){ /* بيضل سعر الصرف المخزن سابقاً */ }
+    try{
+      const product = await apiFetch("/store/product/" + productId);
+      productImage = product.image || "";
+      productEmoji = product.emoji || "";
+      document.getElementById("productTitle").textContent = (product.emoji||'') + ' ' + product.name;
+      if(product.description){ document.getElementById("gameInfoCard").style.display="block"; document.getElementById("gameDesc").textContent = product.description; }
+      window._idLabel = product.id_label || "ايدي اللاعب";
+      const idHint = product.id_hint || "";
+      if(idHint){ document.getElementById("gameInfoCard").style.display="block"; document.getElementById("gameIdHint").textContent = "💡 " + idHint; }
+    }catch(err){ /* العنوان الافتراضي يضل كافي */ }
+
+    try{
+      packages = await apiFetch("/store/categories?product_id=" + productId);
+    }catch(err){
+      document.getElementById("loadingState").style.display = "none";
+      toast("تعذّر تحميل بيانات المنتج", "error");
+      return;
+    }
+    document.getElementById("loadingState").style.display = "none";
+
+    if(!packages.length){
+      document.getElementById("emptyState").style.display = "block";
+      return;
+    }
+    document.getElementById("purchaseForm").style.display = "block";
+    renderPackages();
+  }
+
+  function pkgArt(p){
+    const img = p.image || productImage;
+    return img ? `<img src="${img}" alt="${p.name}">` : `<i class="fa-solid fa-gamepad"></i>`;
+  }
+
+  function renderPackages(){
+    document.getElementById("packagesList").innerHTML = packages.map((p,i)=>{
+      const available = p.price_usd != null && p.price_usd >= 0 && p.available !== false;
+      return `
+      <div class="package-card ${available ? '' : 'unavailable'}">
+        <div class="pcard-art ${(p.image || productImage) ? '' : ART_POOL[i % ART_POOL.length]}">
+          ${pkgArt(p)}
+        </div>
+        <div class="pcard-body">
+          <div class="pcard-name">${p.name}</div>
+          <div class="pcard-fulfill" style="font-size:11.5px;margin:2px 0;color:${p.fulfillment==="auto"?"var(--success)":"var(--muted)"};">${p.fulfillment==="auto"?"⚡ شحن فوري":"🖐 تنفيذ يدوي (بمراجعة الدعم)"}</div>
+          <div class="pcard-price">
+            ${available ? Currency.format(p.price_usd) : '—'}
+          </div>
+          <button class="pcard-buy" ${available ? `onclick="openBuySheet(${p.id})"` : 'disabled'}>
+            ${available ? '<i class="fa-solid fa-cart-shopping"></i> شراء' : '<i class="fa-solid fa-ban"></i> غير متوفر'}
+          </button>
+        </div>
+      </div>`;
+    }).join("");
+  }
+
+  /* ===== بوب-اب الشراء ===== */
+  function openBuySheet(id){
+    if(!Store.token()){ toast("سجّل دخولك أولاً", "error"); setTimeout(()=>location.href="/login.html", 700); return; }
+    selected = packages.find(p=>p.id===id);
+    if(!selected) return;
+    qty = selected.min_qty || 1;
+
+    document.getElementById("bsName").textContent = selected.name;
+    const artBox = document.getElementById("bsArt");
+    const img = selected.image || productImage;
+    artBox.innerHTML = img ? `<img src="${img}" alt="${selected.name}" style="width:100%; height:100%; object-fit:cover; border-radius:13px;">` : `<i class="fa-solid fa-gamepad"></i>`;
+
+    document.getElementById("bsPlayerId").value = "";
+    document.getElementById("bsServerId").value = "";
+    document.querySelector("#bsPlayerIdBlock label").innerHTML = '<i class="fa-solid fa-id-card" style="color:var(--accent);"></i> ' + escapeHtml(window._idLabel || "ايدي اللاعب");
+    document.getElementById("bsServerIdBlock").style.display = selected.requires_server_id ? "block" : "none";
+    const qtyInput = document.getElementById("bsQtyVal");
+    qtyInput.value = qty;
+    qtyInput.min = selected.min_qty || 1;
+    qtyInput.max = selected.max_qty || selected.min_qty || 1;
+    document.getElementById("bsQtyBlock").style.display = (selected.max_qty > selected.min_qty) ? "block" : "none";
+    document.getElementById("bsPlayerIdBlock").style.display = (selected.requires_id === false) ? "none" : "block";
+    const unitQty = selected.unit_qty || 1;
+    const hint = document.getElementById("bsUnitHint");
+    hint.style.display = unitQty > 1 ? "block" : "none";
+    hint.textContent = unitQty > 1 ? `السعر المعروض محسوب لكل ${unitQty} وحدة، والحد الأدنى ${selected.min_qty}` : "";
+
+    window._sheetUuid = null;
+    updateBuySheetTotal();
+    document.getElementById("buySheetOverlay").classList.add("show");
+  }
+
+  function closeBuySheet(){
+    document.getElementById("buySheetOverlay").classList.remove("show");
+    selected = null;
+  }
+
+  function bsChangeQty(delta){
+    if(!selected) return;
+    const next = qty + delta;
+    if(next < (selected.min_qty||1) || next > (selected.max_qty||1)) return;
+    qty = next;
+    document.getElementById("bsQtyVal").value = qty;
+    updateBuySheetTotal();
+  }
+
+  function bsQtyTyped(val){
+    // نسمح للمستخدم يكتب بحرية أثناء الكتابة، والتحقق الفعلي يصير لما يخلص (onblur)
+    const n = parseInt(val, 10);
+    if(!isNaN(n) && selected && n >= (selected.min_qty||1) && n <= (selected.max_qty||1)){
+      qty = n;
+      updateBuySheetTotal();
+    }
+  }
+
+  function bsQtyValidate(){
+    if(!selected) return;
+    const input = document.getElementById("bsQtyVal");
+    let n = parseInt(input.value, 10);
+    const min = selected.min_qty || 1;
+    const max = selected.max_qty || 1;
+    if(isNaN(n)){
+      n = min;
+    }else if(n < min){
+      toast(`الحد الأدنى للكمية هو ${min}`, "error");
+      n = min;
+    }else if(n > max){
+      toast(`الحد الأقصى للكمية هو ${max}`, "error");
+      n = max;
+    }
+    qty = n;
+    input.value = qty;
+    updateBuySheetTotal();
+  }
+
+  function updateBuySheetTotal(){
+    if(!selected) return;
+    const total = selected.price_usd * qty / (selected.unit_qty || 1);
+    document.getElementById("bsTotal").textContent = Currency.format(total);
+    const user = Store.user();
+    const bal = user ? Number(user.balance||0) : 0;
+    document.getElementById("bsBalance").textContent = Currency.format(bal);
+    const insufficient = bal < total;
+    document.getElementById("bsWarning").style.display = insufficient ? "flex" : "none";
+    document.getElementById("bsConfirmBtn").disabled = insufficient;
+  }
+
+  async function confirmPurchase(){
+    if(!Store.token()){ toast("سجّل دخولك أولاً", "error"); setTimeout(()=>location.href="/login.html", 700); return; }
+    if(!selected){ toast("اختر الفئة أولاً", "error"); return; }
+    const needsId = !selected || selected.requires_id !== false;
+    const playerId = needsId ? document.getElementById("bsPlayerId").value.trim() : "—";
+    if(needsId && !playerId){ toast("أدخل الايدي", "error"); return; }
+
+    const btn = document.getElementById("bsConfirmBtn");
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> جاري التنفيذ...';
+
+    try{
+      const res = await apiFetch("/orders", { method:"POST", body: JSON.stringify({
+        category_id: selected.id, player_id: playerId, qty, currency: Currency.get(),
+      })});
+      toast("🎉 " + res.message);
+      setTimeout(()=> location.href = "/orders.html", 1200);
+    }catch(err){
+      toast(err.message, "error");
+      btn.disabled = false;
+      btn.innerHTML = "تأكيد الشراء";
+    }
+  }
+
+  let isFav = false;
+  async function toggleFav(){
+    if(!Store.token()){ toast("سجل دخولك أولا"); return; }
+    try{ await Fav.toggle(productId, isFav); isFav = !isFav; paintFav(); toast(isFav?"أضيف للمفضلة":"أزيل من المفضلة"); }catch(e){ toast(e.message); }
+  }
+  function paintFav(){ const b=document.getElementById("favBtn"); if(b) b.innerHTML = isFav?'<i class="fa-solid fa-heart" style="color:#e63946"></i> بالمفضلة':'<i class="fa-regular fa-heart"></i> مفضلة'; }
+  async function loadFav(){ if(!Store.token()) return; try{ const l=await Fav.list(); isFav=l.some(x=>String(x.id)===String(productId)); paintFav(); }catch(e){} }
+  async function loadRatings(){
+    try{
+      const sum = await apiFetch("/products/"+productId+"/rating-summary");
+      document.getElementById("ratingAvg").textContent = sum.avg?("★ "+sum.avg+" ("+sum.count+")"):"(لا تقييمات بعد)";
+      const list = await apiFetch("/products/"+productId+"/ratings");
+      document.getElementById("ratingsList").innerHTML = list.length?list.slice(0,5).map(r=>"<div>★".repeat(0)+ "⭐".repeat(0)+ "<b>"+r.rating+"★</b> "+escapeHtml(r.comment||"")+" <span class=text-muted>("+escapeHtml(r.user||"")+")</span></div>").join(""):"لا توجد تقييمات بعد — كن أول من يقيّم!";
+    }catch(e){ document.getElementById("ratingsList").textContent = "تعذر تحميل التقييمات"; }
+  }
+  function escapeHtml(x){ return String(x||"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
+  async function sendRating(){
+    if(!Store.token()){ toast("سجل دخولك أولا"); return; }
+    try{ const r=await submitRating(productId, Number(document.getElementById("rateStars").value), document.getElementById("rateComment").value); toast("شكرا لتقييمك!"); loadRatings(); }catch(e){ toast(e.message); }
+  }
+  async function loadReco(){
+    try{
+      const rec = await apiFetch("/products/"+productId+"/recommendations");
+      document.getElementById("recoRow").innerHTML = rec.length?rec.map(p=>'<a href="/product.html?id='+p.id+'" class="drawer-item" style="display:block;text-align:center;">'+(p.image?'<img src="'+p.image+'" alt="'+escapeHtml(p.name)+'" style="width:100%;height:90px;object-fit:cover;border-radius:10px;">':'<div style="font-size:32px;">'+(p.emoji||"🎮")+'</div>')+'<div style="font-size:13px;margin-top:4px;">'+escapeHtml(p.name)+'</div><div class="text-muted" style="font-size:12px;">★ '+(p.rating_avg||"—")+'</div></a>').join(""):'<span class="text-muted">لا توجد اقتراحات حاليا</span>';
+    }catch(e){}
+  }
+  function sheetServerId(){
+    if(!selected || !selected.requires_server_id) return "";
+    const v = document.getElementById("bsServerId").value.trim();
+    return v;
+  }
+  async function addToCartFromSheet(){
+    if(!selected) return;
+    const needsId = selected.requires_id !== false;
+    const pid = needsId ? document.getElementById("bsPlayerId").value.trim() : "—";
+    if(needsId && !pid){ toast("أدخل الايدي"); return; }
+    const srv = sheetServerId();
+    if(selected.requires_server_id && !srv){ toast("أدخل معرّف السيرفر/المنطقة"); return; }
+    try{ await Cart.add(selected.id, qty, pid, srv); toast("أضيف إلى السلة"); closeBuySheet(); }catch(e){ toast(e.message); }
+  }
+  const _init0 = init;
+  init = async function(){ await _init0(); loadFav(); loadRatings(); loadReco(); };
+  // تمرير الكوبون مع الطلب المباشر
+  const _confirm0 = confirmPurchase;
+  confirmPurchase = async function(){
+    if(!Store.token()){ toast("سجل دخولك أولا"); return; }
+    if(!selected){ toast("اختر الفئة أولا"); return; }
+    const needsId = selected.requires_id !== false;
+    const playerId = needsId ? document.getElementById("bsPlayerId").value.trim() : "—";
+    if(needsId && !playerId){ toast("أدخل الايدي"); return; }
+    const serverId = sheetServerId();
+    if(selected.requires_server_id && !serverId){ toast("أدخل معرّف السيرفر/المنطقة"); return; }
+    const coupon = (document.getElementById("bsCoupon")||{value:""}).value.trim();
+    window._sheetUuid = window._sheetUuid || (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()));
+    const btn = document.getElementById("bsConfirmBtn");
+    btn.disabled = true; btn.innerHTML = "جاري التنفيذ...";
+    try{
+      const res = await apiFetch("/orders", { method:"POST", body: JSON.stringify({ category_id: selected.id, player_id: playerId, server_id: serverId, qty, currency: Currency.get(), coupon_code: coupon, order_uuid: window._sheetUuid })});
+      toast(res.message); setTimeout(()=> location.href = "/orders.html", 1200);
+    }catch(err){ toast(err.message); btn.disabled = false; btn.innerHTML = "تأكيد الشراء"; }
+  };
+
+  document.addEventListener("DOMContentLoaded", init);
+</script>
+</body>
+</html>
