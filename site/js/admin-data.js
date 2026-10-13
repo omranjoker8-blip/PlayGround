@@ -18,7 +18,7 @@ const SECTION_LOADERS = {
   users: loadUsers,
   "discount-tiers": loadDiscountTiers,
   products: ()=>Promise.all([loadProducts(), loadSections()]),
-  "smart-admin": ()=>Promise.all([loadProviders(), loadPricing()]),
+  "smart-admin": ()=>Promise.all([loadProviders(), loadPricing(), loadSyncStatus()]),
   backup: loadBackups,
 };
 
@@ -588,7 +588,7 @@ function renderProductsTable(products){
       <td>
         <button class="btn-sm" onclick="pickImage('product', ${p.id})"><i class="fa-solid fa-camera"></i></button>
         <button class="btn-sm" onclick="openAiImage('product', ${p.id}, '${p.name.replace(/'/g,"")}')" title="إنشاء صورة بالذكاء الاصطناعي"><i class="fa-solid fa-wand-magic-sparkles"></i></button>
-        <button class="btn-sm" onclick="openEdit('product', ${p.id}, '${p.name.replace(/'/g,"")}', {name:'${p.name.replace(/'/g,"")}', emoji:'${p.emoji||''}'})"><i class="fa-solid fa-pen"></i></button>
+        <button class="btn-sm" onclick="openEdit('product', ${p.id}, '${p.name.replace(/'/g,"")}', {name:'${p.name.replace(/'/g,"")}', emoji:'${p.emoji||''}', description:(p.description||'').slice(0,300), id_label:p.id_label||'', id_hint:p.id_hint||''})"><i class="fa-solid fa-pen"></i></button>
         <button class="btn-sm" onclick="openCategories(${p.id}, '${p.name.replace(/'/g,"")}')">الفئات</button>
         <button class="btn-sm danger" onclick="deleteProduct(${p.id})">حذف</button>
       </td>
@@ -657,7 +657,7 @@ async function loadCategories(){
         <button class="btn-sm" onclick="pickImage('category', ${c.id})"><i class="fa-solid fa-camera"></i></button>
         <button class="btn-sm" onclick="openAiImage('category', ${c.id}, '${c.name.replace(/'/g,"")}')" title="إنشاء صورة بالذكاء الاصطناعي"><i class="fa-solid fa-wand-magic-sparkles"></i></button>
         <button class="btn-sm" onclick="openLinkModal(${c.id}, '${c.name.replace(/'/g,"")}')" title="ربط بمزوّد API"><i class="fa-solid fa-link"></i></button>
-        <button class="btn-sm" onclick="openEdit('category', ${c.id}, '${c.name.replace(/'/g,"")}', {name:'${c.name.replace(/'/g,"")}', price:${c.price_usd}, unit_qty:${c.unit_qty||1}, min_qty:${c.min_qty}, max_qty:${c.max_qty}, stock_qty:${c.stock_qty === null || c.stock_qty === undefined ? 'null' : c.stock_qty}, requires_id:${c.requires_id === false ? 0 : 1}})"><i class="fa-solid fa-pen"></i></button>
+        <button class="btn-sm" onclick="openEdit('category', ${c.id}, '${c.name.replace(/'/g,"")}', {name:'${c.name.replace(/'/g,"")}', price:${c.price_usd}, unit_qty:${c.unit_qty||1}, min_qty:${c.min_qty}, max_qty:${c.max_qty}, stock_qty:${c.stock_qty === null || c.stock_qty === undefined ? 'null' : c.stock_qty}, requires_id:${c.requires_id === false ? 0 : 1}, requires_server_id:${c.requires_server_id ? 1 : 0}})"><i class="fa-solid fa-pen"></i></button>
         <button class="btn-sm danger" onclick="deleteCategory(${c.id})">حذف</button>
       </td>
     </tr>`).join("")
@@ -673,9 +673,10 @@ async function addCategory(){
   const stockRaw = document.getElementById("newCategoryStock")?.value ?? "";
   const stock_qty = stockRaw.trim() === "" ? null : Number(stockRaw);
   const requires_id = document.getElementById("newCategoryRequiresId") ? document.getElementById("newCategoryRequiresId").checked : true;
+  const requires_server_id = document.getElementById("newCategoryRequiresServer") ? document.getElementById("newCategoryRequiresServer").checked : false;
   if(!name || price <= 0){ toast("أدخل اسم الفئة وسعر صحيح", "error"); return; }
   try{
-    await adminFetch(`/admin/products/${currentProductId}/categories`, { method:"POST", body: JSON.stringify({ name, price, type, unit_qty, min_qty, max_qty, stock_qty, requires_id }) });
+    await adminFetch(`/admin/products/${currentProductId}/categories`, { method:"POST", body: JSON.stringify({ name, price, type, unit_qty, min_qty, max_qty, stock_qty, requires_id, requires_server_id }) });
     toast("تمت إضافة الفئة ✅");
     document.getElementById("newCategoryName").value = "";
     document.getElementById("newCategoryPrice").value = "";
@@ -1276,7 +1277,7 @@ function openEdit(kind, id, title, fields){
   editTarget = { kind, id };
   document.getElementById("editModalTitle").textContent = "تعديل: " + title;
   const body = document.getElementById("editModalBody");
-  const labels = { name:"الاسم", emoji:"الإيموجي", price:"السعر $", unit_qty:"السعر لكل كمية", min_qty:"الحد الأدنى للكمية", max_qty:"الحد الأقصى للكمية", stock_qty:"كمية المخزون (فارغ = غير محدود)", requires_id:"يطلب ايدي اللاعب (1 = نعم / 0 = لا)", active:"الحالة", exchange_rate:"سعر الصرف", api_token:"API Token", api_url:"API URL", description:"الوصف" };
+  const labels = { name:"الاسم", emoji:"الإيموجي", price:"السعر $", unit_qty:"السعر لكل كمية", min_qty:"الحد الأدنى للكمية", max_qty:"الحد الأقصى للكمية", stock_qty:"كمية المخزون (فارغ = غير محدود)", requires_id:"يطلب ايدي اللاعب (1 = نعم / 0 = لا)", requires_server_id:"يطلب معرّف السيرفر/المنطقة (1 = نعم / 0 = لا)", id_label:"تسمية حقل الايدي (مثال: Player ID)", id_hint:"تلميح الايدي للاعب (يظهر بصفحة اللعبة)", active:"الحالة", exchange_rate:"سعر الصرف", api_token:"API Token", api_url:"API URL", description:"الوصف" };
   body.innerHTML = Object.entries(fields).map(([k,v])=>{
     if(k === "active") return `<div class="field"><label>${labels[k]||k}</label><select id="ef_${k}" style="padding:11px;border-radius:11px;border:1px solid var(--border);background:var(--card-soft);color:var(--text);"><option value="1" ${v?"selected":""}>مفعّل</option><option value="0" ${!v?"selected":""}>معطّل</option></select></div>`;
     return `<div class="field"><label>${labels[k]||k}</label><input type="${typeof v==='number'?'number':'text'}" id="ef_${k}" value="${v??''}" step="${(k.includes('price')||k.includes('rate'))?'0.01':'1'}" style="padding:11px;border-radius:11px;border:1px solid var(--border);background:var(--card-soft);color:var(--text);"></div>`;
@@ -1581,3 +1582,22 @@ async function renderSalesChart(){
   }catch(e){}
 }
 const _goSection0 = typeof goSection !== "undefined" ? goSection : null;
+
+/* ===== حالة مزامنة المزوّدين (لوحة المالك) ===== */
+async function loadSyncStatus(){
+  const box = document.getElementById("syncStatusBox");
+  if(!box) return;
+  try{
+    const st = await adminFetch("/admin/sync-status");
+    box.innerHTML = '<div>آخر تشغيل: <b>'+(st.last_run||"لم يتم بعد")+'</b></div>'
+      + '<div>النتيجة: <b>'+(st.last_result||"—")+'</b></div>'
+      + '<div>فئات مربوطة بمزوّد: <b>'+st.linked_categories+'</b> | بهامش ربح: <b>'+st.margin_categories+'</b></div>'
+      + '<div class="text-muted" style="font-size:12px;">'+st.note+'</div>';
+  }catch(e){ box.innerHTML = '<span class="text-muted">تعذّر التحميل</span>'; }
+}
+async function runSyncNow(btn){
+  if(btn){ btn.disabled = true; btn.innerHTML = "جارٍ المزامنة..."; }
+  try{ const r = await adminFetch("/admin/sync-run", {method:"POST"}); toast(r.message); loadSyncStatus(); }
+  catch(e){ toast(e.message); }
+  finally{ if(btn){ btn.disabled = false; btn.innerHTML = "مزامنة الآن"; } }
+}

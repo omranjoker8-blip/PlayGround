@@ -77,6 +77,7 @@
     <button class="btn-sm" onclick="filterActivity('balance', this)">الرصيد</button>
     <button class="btn-sm" onclick="filterActivity('deposit', this)">الإيداعات</button>
     <button class="btn-sm" onclick="filterActivity('notification', this)">الإشعارات</button>
+    <button class="btn-sm" onclick="exportCSV(this)" title="تنزيل سجل العمليات CSV"><i class="fa-solid fa-download"></i> تصدير CSV</button>
   </div>
   <div id="activityList"></div>
 </div>
@@ -109,6 +110,17 @@
           <div class="dt">${i.source || ""} • ${i.date || ""}${i.amount_syp != null ? " • " + Math.round(i.amount_syp).toLocaleString() + " ل.س" : ""}${i.ref ? " • " + i.ref : ""}</div>
         </div>
       </div>`).join("");
+  }
+  async function exportCSV(btn){
+    try{
+      const t = Store.token(); if(!t){ toast("سجّل دخولك أولاً"); return; }
+      const r = await fetch(API_BASE + "/user/transactions/export", {headers:{"Authorization":"Bearer "+t}});
+      if(!r.ok) throw new Error("تعذّر التصدير");
+      const blob = await r.blob();
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob); a.download = "transactions.csv"; a.click();
+      setTimeout(()=>URL.revokeObjectURL(a.href), 5000);
+    }catch(e){ toast(e.message); }
   }
   function filterActivity(kind, btn){
     document.querySelectorAll(".container .btn-sm").forEach(b=>b.classList.remove("primary"));

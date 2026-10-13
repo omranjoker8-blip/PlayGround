@@ -51,3 +51,27 @@ gunicorn -w 1 --threads 4 -b 127.0.0.1:5000 app:app
 - Backup/restore/wipe are SQLite-only paths; on Supabase/Postgres use database-level backups.
 - Sales chart is an indicator (today-orders seed) — a daily-series endpoint would make it a full time series.
 - No automated frontend browser tests were run (no runner here); backend + static checks cover the changes.
+
+## Gaming top-up upgrade (October 2026, round 2)
+
+### Game pages & packages
+- `requires_server_id` per package (Zone/Server ID for Mobile Legends/Genshin-style games): migration-safe columns on `categories` (+`server_id` on `cart_items`), validation in `place_order`, reseller APIs, cart, and checkout.
+- Game page (`product.html`): description block, per-game ID label/hint (`id_label`/`id_hint`, admin-editable), server-ID input shown only when required, fulfillment badge per package (⚡ instant API vs 🖐 manual review), idempotency key per purchase sheet (no double charge on double-click/retry).
+- `GET /api/store/product/<id>` now returns `description`, `id_label`, `id_hint`; `GET /api/store/categories` returns `requires_server_id` + `fulfillment`.
+
+### Supplier auto top-up + failure handling (no invented APIs)
+- `lud.buy_from_api(..., server_id)` passes Server/Zone ID through documented param shapes only; manual fallback unchanged.
+- Purchase + every refund path now writes `user_transactions` ledger rows (provider reject, manual refresh-fail, monitor failed/timeout, admin reject) — wallet history is complete and auditable.
+- Delayed-order surfacing: `is_delayed` (API order pending >10 min) in list + detail, with ⏳ badge and refresh guidance; server ID stored in `custom_params` and shown everywhere (list, detail, admin).
+- Supplier sync: `GET /api/admin/sync-status` + `POST /api/admin/sync-run` (manual sync from owner panel); daily loop records last run/result; smart-admin panel shows status with one-click sync.
+
+### Fraud & accounting
+- `POST /api/orders` (30/min) and `POST /api/cart/checkout` (15/min) rate-limited; 100-orders/day per-user velocity cap (429); `order_uuid` idempotency on direct orders (duplicate returns original, balance untouched — tested).
+- CSV export `GET /api/user/transactions/export` (wallet + orders, BOM for Excel Arabic); export button in activity page.
+
+### Owner dashboard
+- Category form: server-ID checkbox; generic edit modal labels for `requires_server_id`, `id_label`, `id_hint`; product list carries description/labels; reseller catalog `params` now dynamic (Player ID / Server ID / none).
+- Admin shop-orders list includes `server_id`.
+
+### Tests (executed)
+Seeded ML-style game (server-required, manual) + no-ID gift card: detail/labels ✅, missing-server 400 ✅, top-up 200 ✅, duplicate uuid no-charge ✅, server in list/detail ✅, ledger purchase rows ✅, gift-card no-ID ✅, cart+checkout with server ✅, reject→refund row ✅, sync-status/run ✅, unauth 401s ✅, `promote_owner.py` OK ✅. One migration-order bug (cart `server_id` ALTER before CREATE) found by tests and fixed; `node --check` passes for both JS bundles.

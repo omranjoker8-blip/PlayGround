@@ -484,8 +484,8 @@ async function apiFetch(path, opts={}){
 }
 const Cart = {
   async list(){ try{ return await apiFetch("/cart"); }catch(e){ return []; } },
-  async add(category_id, qty=1, player_id=""){
-    return apiFetch("/cart", {method:"POST", body:JSON.stringify({category_id, qty, player_id})});
+  async add(category_id, qty=1, player_id="", server_id=""){
+    return apiFetch("/cart", {method:"POST", body:JSON.stringify({category_id, qty, player_id, server_id})});
   },
   async remove(id){ return apiFetch("/cart/"+id, {method:"DELETE"}); },
   async clear(){ return apiFetch("/cart", {method:"DELETE"}); },

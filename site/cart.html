@@ -94,7 +94,7 @@ async function loadCart(){
   if(!items.length){ box.innerHTML = '<div class="card">سلتك فارغة. <a href="/store.html">تصفح المتجر</a></div>'; return; }
   box.innerHTML = items.map(i=>'<div class="card" style="display:flex;gap:10px;align-items:center;margin-bottom:8px;">'
     +'<div style="flex:1;"><b>'+escapeHtml(i.product_name||"")+' — '+escapeHtml(i.category_name||"")+'</b>'
-    +'<div class="text-muted" style="font-size:13px;">الكمية: '+i.qty+' | السعر: '+Currency.format(i.price_usd*(i.qty||1))+(i.player_id?' | ID: '+escapeHtml(i.player_id):'')+'</div></div>'
+    +'<div class="text-muted" style="font-size:13px;">الكمية: '+i.qty+' | السعر: '+Currency.format(i.price_usd*(i.qty||1))+(i.player_id?' | ID: '+escapeHtml(i.player_id):'')+(i.server_id?' | سيرفر: '+escapeHtml(i.server_id):'')+'</div></div>'
     +'<button class="drawer-btn ghost" style="width:auto;" onclick="removeItem('+i.id+')" aria-label="حذف من السلة"><i class="fa-solid fa-trash"></i></button></div>').join("");
 }
 function escapeHtml(s){ return String(s||"").replace(/[&<>"']/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }

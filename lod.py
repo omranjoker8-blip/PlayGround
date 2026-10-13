@@ -1023,6 +1023,20 @@ def category_requires_id(category_id):
     except Exception:
         return True
 
+def category_requires_server_id(category_id):
+    """هل تتطلب الفئة معرّف سيرفر/منطقة (Zone/Server ID) بجانب Player ID؟"""
+    try:
+        with get_db() as conn:
+            c = conn.cursor()
+            c.execute("SELECT requires_server_id FROM categories WHERE id = ?", (category_id,))
+            row = c.fetchone()
+            if not row or row[0] is None:
+                return False
+            return bool(int(row[0]))
+    except Exception:
+        return False
+
+
 def get_notifications(user_id, limit=30):
     with get_db() as conn:
         c = conn.cursor()
@@ -1467,12 +1481,22 @@ def check_order_status(order_id, api_token=None, api_base_url=None):
 
     return None
 
-def buy_from_api(api_product_id, player_id, qty=1, api_token=None, api_base_url=None):
+def buy_from_api(api_product_id, player_id, qty=1, api_token=None, api_base_url=None, server_id=None):
     """
-    يطلب شراء من المزود - يجرب عدة endpoints وأساليب حتى ينجح.
+    يطلب شراء من المزود - يجرب عدة endpoints وأشكال حتى ينجح.
     يدعم GET و POST وأشكال params مختلفة.
+    server_id (اختياري): معرّف السيرفر/المنطقة لألعاب مثل Mobile Legends —
+    يُمرَّر كما هو ضمن params الموثقة (playerId/serverId) ولا يُخترع أي endpoint.
     """
     order_uuid = str(uuid.uuid4())
+    server_id = (server_id or "").strip() or None
+
+    def _with_server(params):
+        if server_id and isinstance(params, dict):
+            params = dict(params)
+            params.setdefault("serverId", server_id)
+            params.setdefault("server_id", server_id)
+        return params
 
     # قائمة endpoint + method + params المحتملة
     attempts = [
@@ -1505,6 +1529,10 @@ def buy_from_api(api_product_id, player_id, qty=1, api_token=None, api_base_url=
             body = None
         else:
             method, ep, params, body = attempt
+        params = _with_server(params)
+        if server_id and isinstance(body, dict):
+            body = dict(body)
+            body.setdefault("server_id", server_id)
         try:
             result = api_request(ep, params=params, api_token=api_token,
                                  api_base_url=api_base_url, method=method, body=body)
@@ -1576,6 +1604,13 @@ def monitor_api_order_web(order_db_id, user_id, price_syp, api_token=None, api_b
         if elapsed > max_wait:
             update_api_order_status(order_db_id, "timeout")
             update_user_balance(user_id, price_syp)
+            try:
+                with get_db() as _c:
+                    _c.cursor().execute(
+                        "INSERT INTO user_transactions (user_id, type, amount, description) VALUES (?, 'refund', ?, ?)",
+                        (user_id, abs(price_syp), f"استرجاع انتهاء مهلة المزوّد (طلب #{order_db_id})"))
+            except Exception:
+                pass
             add_notification(user_id, "⌛ انتهت مهلة الطلب", "تم إرجاع المبلغ إلى رصيدك تلقائياً", "danger")
             return
 
@@ -1617,6 +1652,13 @@ def monitor_api_order_web(order_db_id, user_id, price_syp, api_token=None, api_b
         elif status == "failed":
             update_api_order_status(order_db_id, "failed", replay_text)
             update_user_balance(user_id, price_syp)
+            try:
+                with get_db() as _c:
+                    _c.cursor().execute(
+                        "INSERT INTO user_transactions (user_id, type, amount, description) VALUES (?, 'refund', ?, ?)",
+                        (user_id, abs(price_syp), f"استرجاع فشل المزوّد (طلب #{order_db_id})"))
+            except Exception:
+                pass
             add_notification(user_id, "💰 تم استرجاع المبلغ", "أعيد مبلغ الطلب الفاشل إلى رصيدك", "info")
             return
         # أي حالة أخرى (processing/غيرها) → استمر بالمراقبة

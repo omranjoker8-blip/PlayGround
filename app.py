@@ -196,6 +196,19 @@ def init_web_tables():
             c.execute("ALTER TABLE shop_orders ADD COLUMN custom_params TEXT DEFAULT ''")
         except sqlite3.OperationalError:
             pass
+        # ===== حقول شحن الألعاب: معرّف السيرفر/المنطقة + تسميات الإدخال لكل لعبة =====
+        # requires_server_id: ألعاب مثل Mobile Legends/Genshin تحتاج Zone/Server ID بجانب Player ID.
+        # server_id يُمرَّر للمزوّد كما هو (params موثقة) ويُحفظ مع الطلب — لا يُخترع أي API.
+        for _ddl in (
+            "ALTER TABLE categories ADD COLUMN requires_server_id INTEGER DEFAULT 0",
+            "ALTER TABLE products ADD COLUMN id_label TEXT DEFAULT ''",
+            "ALTER TABLE products ADD COLUMN id_hint TEXT DEFAULT ''",
+            "ALTER TABLE cart_items ADD COLUMN server_id TEXT DEFAULT ''",
+        ):
+            try:
+                c.execute(_ddl)
+            except Exception:
+                pass  # العمود موجود مسبقاً (يتعامل مع SQLite وPostgres معاً)
         c.execute("""CREATE TABLE IF NOT EXISTS banner_images (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             image TEXT NOT NULL,
@@ -266,6 +279,7 @@ def init_web_tables():
             category_id INTEGER NOT NULL,
             qty INTEGER NOT NULL DEFAULT 1,
             player_id TEXT DEFAULT '',
+            server_id TEXT DEFAULT '',
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )""")
@@ -850,7 +864,20 @@ def store_product_detail(product_id):
     p = lod.get_product_by_id(product_id)  # id, name, category, emoji, description, image
     if not p:
         return jsonify({"message": "المنتج غير موجود"}), 404
-    return jsonify({"id": p[0], "name": p[1], "category": p[2], "emoji": p[3], "image": p[5] or ""})
+    id_label, id_hint = "", ""
+    try:
+        with lod.get_db() as conn:
+            c = conn.cursor()
+            c.execute("SELECT COALESCE(id_label,''), COALESCE(id_hint,'') FROM products WHERE id = ?",
+                      (product_id,))
+            _lh = c.fetchone()
+            if _lh:
+                id_label, id_hint = _lh[0] or "", _lh[1] or ""
+    except Exception:
+        pass
+    return jsonify({"id": p[0], "name": p[1], "category": p[2], "emoji": p[3],
+                    "description": p[4] or "", "image": p[5] or "",
+                    "id_label": id_label or "ايدي اللاعب", "id_hint": id_hint})
 
 
 @app.get("/api/store/categories")
@@ -867,9 +894,12 @@ def store_categories():
 
     with lod.get_db() as conn:
         c = conn.cursor()
-        c.execute("""SELECT id, name, price, type, min_qty, max_qty, image, stock_qty, COALESCE(NULLIF(unit_qty, 0), 1),
-                            COALESCE(requires_id, 1)
-                     FROM categories WHERE product_id = ?""", (product_id,))
+        c.execute("""SELECT c.id, c.name, c.price, c.type, c.min_qty, c.max_qty, c.image, c.stock_qty,
+                            COALESCE(NULLIF(c.unit_qty, 0), 1),
+                            COALESCE(c.requires_id, 1), COALESCE(c.requires_server_id, 0),
+                            CASE WHEN lp.id IS NULL THEN 'manual' ELSE 'auto' END
+                     FROM categories c LEFT JOIN linked_products lp ON lp.category_id = c.id
+                     WHERE c.product_id = ? GROUP BY c.id""", (product_id,))
         rows = c.fetchall()
 
     result = []
@@ -881,7 +911,8 @@ def store_categories():
             "id": r[0], "name": r[1], "price_usd": round(final_price, 4), "price_syp": round(final_price * rate),
             "type": r[3], "min_qty": r[4], "max_qty": r[5], "image": r[6] or "",
             "stock_qty": stock_qty, "unit_qty": r[8], "available": (stock_qty is None or stock_qty > 0),
-            "requires_id": bool(r[9]),
+            "requires_id": bool(r[9]), "requires_server_id": bool(r[10]),
+            "fulfillment": r[11],
         }
         if discount_percent:
             item["original_price_usd"] = base_price
@@ -1152,16 +1183,23 @@ def cart_list():
     uid = effective_user_id(request.web_user)
     with lod.get_db() as conn:
         c = conn.cursor()
-        c.execute("""SELECT ci.id, ci.category_id, ci.qty, ci.player_id, cat.name, cat.price, p.name, p.image
-                     FROM cart_items ci LEFT JOIN categories cat ON cat.id = ci.category_id
-                     LEFT JOIN products p ON p.id = cat.product_id
-                     WHERE ci.user_id = ? ORDER BY ci.id DESC""", (uid,))
+        try:
+            c.execute("""SELECT ci.id, ci.category_id, ci.qty, ci.player_id, cat.name, cat.price, p.name, p.image,
+                                COALESCE(ci.server_id,'')
+                         FROM cart_items ci LEFT JOIN categories cat ON cat.id = ci.category_id
+                         LEFT JOIN products p ON p.id = cat.product_id
+                         WHERE ci.user_id = ? ORDER BY ci.id DESC""", (uid,))
+        except Exception:
+            c.execute("""SELECT ci.id, ci.category_id, ci.qty, ci.player_id, cat.name, cat.price, p.name, p.image, ''
+                         FROM cart_items ci LEFT JOIN categories cat ON cat.id = ci.category_id
+                         LEFT JOIN products p ON p.id = cat.product_id
+                         WHERE ci.user_id = ? ORDER BY ci.id DESC""", (uid,))
         rows = c.fetchall()
     rate = lod.get_exchange_rate()
     return jsonify([{"id": r[0], "category_id": r[1], "qty": r[2], "player_id": r[3] or "",
                      "category_name": r[4] or "", "price_usd": r[5] or 0,
                      "price_syp": round((r[5] or 0) * rate), "product_name": r[6] or "",
-                     "image": r[7] or ""} for r in rows])
+                     "image": r[7] or "", "server_id": r[8] or ""} for r in rows])
 
 
 @app.post("/api/cart")
@@ -1174,20 +1212,28 @@ def cart_add():
     except (TypeError, ValueError):
         return jsonify({"message": "بيانات السلة غير صحيحة"}), 400
     player_id = (b.get("player_id") or "").strip()[:120]
+    server_id = (b.get("server_id") or b.get("serverId") or "").strip()[:120]
     if not lod.get_category_by_id(category_id):
         return jsonify({"message": "الفئة غير موجودة"}), 404
     uid = effective_user_id(request.web_user)
     with lod.get_db() as conn:
         c = conn.cursor()
-        c.execute("SELECT id, qty FROM cart_items WHERE user_id = ? AND category_id = ? AND player_id = ?",
-                  (uid, category_id, player_id))
+        c.execute("""SELECT id, qty FROM cart_items WHERE user_id = ? AND category_id = ? AND player_id = ?
+                     AND COALESCE(server_id,'') = ?""",
+                  (uid, category_id, player_id, server_id))
         row = c.fetchone()
         if row:
             c.execute("UPDATE cart_items SET qty = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
                       (row[1] + qty, row[0]))
         else:
-            c.execute("INSERT INTO cart_items (user_id, category_id, qty, player_id) VALUES (?, ?, ?, ?)",
-                      (uid, category_id, qty, player_id))
+            try:
+                c.execute("""INSERT INTO cart_items (user_id, category_id, qty, player_id, server_id)
+                             VALUES (?, ?, ?, ?, ?)""",
+                          (uid, category_id, qty, player_id, server_id))
+            except Exception:
+                # توافق مع قواعد قديمة قبل عمود server_id
+                c.execute("""INSERT INTO cart_items (user_id, category_id, qty, player_id)
+                             VALUES (?, ?, ?, ?)""", (uid, category_id, qty, player_id))
     return jsonify({"message": "أُضيف إلى السلة"})
 
 
@@ -1258,12 +1304,29 @@ def _award_loyalty(uid, total_usd):
                      updated_at = CURRENT_TIMESTAMP""", (uid, pts))
 
 
+def _check_order_velocity(uid, daily_cap=100):
+    """حدّ أمان يومي ضد إساءة الاستخدام والأخطاء (100 طلب/يوم للمستخدم الواحد)."""
+    try:
+        with lod.get_db() as conn:
+            c = conn.cursor()
+            c.execute("""SELECT (SELECT COUNT(*) FROM shop_orders WHERE user_id = ? AND date(created_at) = date('now'))
+                              + (SELECT COUNT(*) FROM api_orders WHERE user_id = ? AND date(created_at) = date('now'))""",
+                      (uid, uid))
+            row = c.fetchone()
+        return (row[0] or 0) < daily_cap
+    except Exception:
+        return True
+
+
 @app.post("/api/cart/checkout")
 @require_auth
+@limiter.limit("15 per minute")
 def cart_checkout():
     """إتمام شراء كل عناصر السلة دفعة واحدة (مع كوبون اختياري)."""
     web_row = request.web_user
     uid = effective_user_id(web_row)
+    if not _check_order_velocity(uid):
+        return jsonify({"message": "تجاوزت الحد اليومي للطلبات (100)، حاول غداً أو تواصل مع الدعم"}), 429
     b = request.get_json(force=True, silent=True) or {}
     coupon_code = (b.get("coupon_code") or "").strip().upper()
     extra_percent = 0
@@ -1274,15 +1337,18 @@ def cart_checkout():
         extra_percent = cp["percent"]
     with lod.get_db() as conn:
         c = conn.cursor()
-        c.execute("SELECT category_id, qty, player_id FROM cart_items WHERE user_id = ?", (uid,))
+        try:
+            c.execute("SELECT category_id, qty, player_id, COALESCE(server_id,'') FROM cart_items WHERE user_id = ?", (uid,))
+        except Exception:
+            c.execute("SELECT category_id, qty, player_id, '' FROM cart_items WHERE user_id = ?", (uid,))
         items = c.fetchall()
     if not items:
         return jsonify({"message": "السلّة فارغة"}), 400
     results, failed = [], []
-    for cat_id, qty, pl in items:
+    for cat_id, qty, pl, srv in items:
         ok, payload, code = place_order(uid, cat_id, pl, qty, web_row[2], web_row[1],
                                         (web_row[9] or "USD").upper() if len(web_row) > 9 else "USD",
-                                        coupon_percent=extra_percent)
+                                        coupon_percent=extra_percent, server_id=srv or "")
         (results if ok else failed).append({"category_id": cat_id, **payload})
     if coupon_code and results and not failed:
         with lod.get_db() as conn:
@@ -1638,6 +1704,25 @@ def webhook_deposit_invoice():
 # =============================================================
 # 4) الطلبات (عرض + إنشاء)
 # =============================================================
+def _server_from_params(custom_params):
+    try:
+        d = json.loads(custom_params or "{}")
+        return (d.get("server_id") or d.get("serverId") or "")
+    except Exception:
+        return ""
+
+
+def _is_delayed_order(raw_status, created_at, threshold_min=10):
+    """طلب API ما زال قيد التنفيذ بعد 10 دقائق = متأخر ويستحق المتابعة."""
+    if raw_status != "processing":
+        return False
+    try:
+        t0 = datetime.strptime(str(created_at)[:19], "%Y-%m-%d %H:%M:%S")
+        return (datetime.now() - t0).total_seconds() > threshold_min * 60
+    except Exception:
+        return False
+
+
 def serialize_orders(uid):
     """
     يوحّد حالات الطلبات (يدوية وتلقائية) إلى 3 حالات موحّدة للعرض:
@@ -1653,16 +1738,21 @@ def serialize_orders(uid):
     }
     with lod.get_db() as conn:
         c = conn.cursor()
-        c.execute("""SELECT id, product_name, category_name, price, player_id, qty, status, created_at
+        c.execute("""SELECT id, product_name, category_name, price, player_id, qty, status, created_at,
+                            COALESCE(custom_params,'')
                      FROM shop_orders WHERE user_id = ?""", (uid,))
         shop = [{"id": r[0], "source": "shop", "product_name": r[1], "category_name": r[2], "price_syp": r[3],
                   "player_id": r[4], "qty": r[5], "raw_status": r[6],
-                  "status": UNIFY.get(r[6], r[6]), "date": r[7]} for r in c.fetchall()]
-        c.execute("""SELECT id, product_name, category_name, price, player_id, qty, status, created_at
+                  "status": UNIFY.get(r[6], r[6]), "date": r[7],
+                  "server_id": _server_from_params(r[8]), "is_delayed": False} for r in c.fetchall()]
+        c.execute("""SELECT id, product_name, category_name, price, player_id, qty, status, created_at,
+                            COALESCE(custom_params,'')
                      FROM api_orders WHERE user_id = ?""", (uid,))
         api_o = [{"id": r[0], "source": "api", "product_name": r[1], "category_name": r[2], "price_syp": r[3],
                    "player_id": r[4], "qty": r[5], "raw_status": r[6],
-                   "status": UNIFY.get(r[6], r[6]), "date": r[7]} for r in c.fetchall()]
+                   "status": UNIFY.get(r[6], r[6]), "date": r[7],
+                   "server_id": _server_from_params(r[8]),
+                   "is_delayed": _is_delayed_order(r[6], r[7])} for r in c.fetchall()]
     return sorted(shop + api_o, key=lambda o: o["date"], reverse=True)
 
 
@@ -1673,7 +1763,19 @@ def orders_list():
     return jsonify(serialize_orders(uid))
 
 
-def place_order(uid, category_id, player_id, qty, username="", full_name="", currency="SYP", coupon_percent=0):
+def _log_wallet_txn(uid, txn_type, amount_syp, description):
+    """قيد محفظة دقيق لكل حركة (شراء/استرجاع/إيداع) — أساس المحاسبة الصحيحة."""
+    try:
+        with lod.get_db() as conn:
+            c = conn.cursor()
+            c.execute("""INSERT INTO user_transactions (user_id, type, amount, description)
+                         VALUES (?, ?, ?, ?)""", (uid, txn_type, amount_syp, description))
+    except Exception:
+        pass
+
+
+def place_order(uid, category_id, player_id, qty, username="", full_name="", currency="SYP", coupon_percent=0,
+                server_id=""):
     """نفس منطق الشراء بالبوت بالضبط: خصم → (API أو يدوي) → استرجاع عند الرفض."""
     category = lod.get_category_by_id(category_id)
     if not category:
@@ -1691,6 +1793,12 @@ def place_order(uid, category_id, player_id, qty, username="", full_name="", cur
         return False, {"message": "ايدي اللاعب مطلوب لهذا المنتج"}, 400
     if not needs_id and not player_id:
         player_id = "—"
+    # معرّف السيرفر/المنطقة (Zone/Server ID) لألعاب مثل Mobile Legends وGenshin
+    needs_server = lod.category_requires_server_id(category_id)
+    server_id = (server_id or "").strip()
+    if needs_server and not server_id:
+        return False, {"message": "معرّف السيرفر/المنطقة مطلوب لهذه اللعبة"}, 400
+    server_tag = f" | سيرفر: {server_id}" if server_id else ""
 
     rate = lod.get_exchange_rate()
     discount_name, discount_percent = lod.get_user_discount(uid)
@@ -1718,16 +1826,21 @@ def place_order(uid, category_id, player_id, qty, username="", full_name="", cur
     if not ok_deduct:
         lod.restore_stock(cat_id, qty)  # نرجع المخزون لأن الشراء ما تم فعلياً
         return False, {"message": "رصيدك غير كافٍ لإتمام هذا الطلب"}, 400
+    _log_wallet_txn(uid, "purchase", -abs(price_syp),
+                    f"شراء «{product_name} - {cat_name}» × {qty} للاعب {player_id}{server_tag}")
     lod.add_notification(uid, "🛒 تم إنشاء طلبك", f"طلب «{product_name} - {cat_name}» قيد المعالجة", "info")
 
     linked = lod.get_linked_by_category(category_id)
     if linked:
         api_product_id, provider_id = linked[3], linked[8]
         p_token, p_url = linked[10], linked[11]
-        result = lod.buy_from_api(api_product_id, player_id, qty, api_token=p_token, api_base_url=p_url)
+        result = lod.buy_from_api(api_product_id, player_id, qty, api_token=p_token, api_base_url=p_url,
+                                  server_id=server_id or None)
 
         if result.get("error") or result.get("status") != "OK":
             lod.update_user_balance(uid, price_syp)  # استرجاع
+            _log_wallet_txn(uid, "refund", abs(price_syp),
+                            f"استرجاع رفض المزوّد: «{product_name} - {cat_name}»")
             lod.restore_stock(cat_id, qty)  # استرجاع المخزون كمان لأن المزوّد رفض الطلب
             return False, {"message": "تم رفض الطلب من المزوّد، تم استرجاع رصيدك", "detail": str(result)}, 400
 
@@ -1739,12 +1852,20 @@ def place_order(uid, category_id, player_id, qty, username="", full_name="", cur
         order_db_id = lod.save_api_order(uid, 0, order_id, product_name, cat_name, price_syp,
                                           player_id, qty, replay_text, provider_id,
                                           cost_usd=cost_usd_total, price_usd=total_usd)
+        if server_id:
+            try:
+                with lod.get_db() as conn:
+                    c = conn.cursor()
+                    c.execute("UPDATE api_orders SET custom_params = ? WHERE id = ?",
+                              (json.dumps({"server_id": server_id}, ensure_ascii=False), order_db_id))
+            except Exception:
+                pass
 
         lod.notify_admin("🧾 طلب API جديد من الموقع",
                           f"👤 {full_name} ({username})\n🆔 {uid}\n"
                           f"🔶 المنتج: {product_name}\n🔶 الفئة: {cat_name}\n"
                           f"🔶 الكمية: {qty}\n🔶 السعر: {price_syp:,.2f} ليرة\n"
-                          f"🔶 الايدي: {player_id}\n🔖 رقم الطلب: {order_db_id}")
+                          f"🔶 الايدي: {player_id}{server_tag}\n🔖 رقم الطلب: {order_db_id}")
 
         # تشغيل مراقبة الطلب بالخلفية (نفس منطق البوت بالضبط)
         threading.Thread(
@@ -1763,9 +1884,10 @@ def place_order(uid, category_id, player_id, qty, username="", full_name="", cur
     else:
         with lod.get_db() as conn:
             c = conn.cursor()
-            c.execute("""INSERT INTO shop_orders (user_id, product_name, category_name, price, player_id, qty, status, price_usd)
-                         VALUES (?, ?, ?, ?, ?, ?, 'pending', ?)""",
-                       (uid, product_name, cat_name, price_syp, player_id, qty, total_usd))
+            c.execute("""INSERT INTO shop_orders (user_id, product_name, category_name, price, player_id, qty, status, price_usd, custom_params)
+                         VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?)""",
+                       (uid, product_name, cat_name, price_syp, player_id, qty, total_usd,
+                        json.dumps({"server_id": server_id}, ensure_ascii=False) if server_id else ""))
             order_db_id = c.lastrowid
 
         keyboard = {"inline_keyboard": [[
@@ -1775,7 +1897,7 @@ def place_order(uid, category_id, player_id, qty, username="", full_name="", cur
         lod.send_message(lod.ADMIN_CHAT_ID,
                           f"🔶 طلب شحن جديد من الموقع 🔶\n👤 {full_name} ({username})\n🆔 {uid}\n"
                           f"----------------------------\n🔶 المنتج: {product_name}\n🔶 الفئة: {cat_name}\n"
-                          f"🔶 السعر: {price_syp:,.2f} ليرة\n🔶 الكمية: {qty}\n🔶 ايدي اللاعب: {player_id}",
+                          f"🔶 السعر: {price_syp:,.2f} ليرة\n🔶 الكمية: {qty}\n🔶 ايدي اللاعب: {player_id}{server_tag}",
                           reply_markup=keyboard)
         try:
             _award_loyalty(uid, total_usd)
@@ -1787,9 +1909,12 @@ def place_order(uid, category_id, player_id, qty, username="", full_name="", cur
 
 @app.post("/api/orders")
 @require_auth
+@limiter.limit("30 per minute")
 def orders_create():
     web_row = request.web_user
     uid = effective_user_id(web_row)
+    if not _check_order_velocity(uid):
+        return jsonify({"message": "تجاوزت الحد اليومي للطلبات (100)، حاول غداً أو تواصل مع الدعم"}), 429
     body = request.get_json(force=True, silent=True) or {}
     preferred_currency = (web_row[9] or "USD").upper() if len(web_row) > 9 else "USD"
     requested_currency = (body.get("currency") or preferred_currency).upper()
@@ -1802,9 +1927,33 @@ def orders_create():
         if not cp or not cp["active"]:
             return jsonify({"message": "الكوبون غير صالح"}), 400
         coupon_percent = cp["percent"]
+    # منع الخصم المزدوج عند إعادة الإرسال (نقرة مزدوجة/تحديث): نفس order_uuid = نفس النتيجة
+    order_uuid = (body.get("order_uuid") or "").strip()[:64]
+    if order_uuid:
+        with lod.get_db() as conn:
+            c = conn.cursor()
+            c.execute("SELECT id, status FROM api_orders WHERE order_uuid = ? AND user_id = ?", (order_uuid, uid))
+            ex = c.fetchone()
+            if not ex:
+                c.execute("SELECT id, status FROM shop_orders WHERE order_uuid = ? AND user_id = ?", (order_uuid, uid))
+                ex = c.fetchone()
+            if ex:
+                return jsonify({"message": "هذا الطلب تم تنفيذه مسبقاً", "order_id": ex[0],
+                                "status": ex[1], "duplicate": True}), 200
     ok, payload, code = place_order(uid, body.get("category_id"), body.get("player_id"),
                                      body.get("qty", 1), web_row[2], web_row[1], requested_currency,
-                                     coupon_percent=coupon_percent)
+                                     coupon_percent=coupon_percent,
+                                     server_id=body.get("server_id") or body.get("serverId") or "")
+    if ok:
+        try:
+            with lod.get_db() as conn:
+                c = conn.cursor()
+                c.execute("SELECT 1 FROM api_orders WHERE id = ?", (payload["order_id"],))
+                _tbl = "api_orders" if c.fetchone() else "shop_orders"
+                c.execute(f"UPDATE {_tbl} SET order_uuid = ? WHERE id = ? AND user_id = ?",
+                          (order_uuid or None, payload["order_id"], uid))
+        except Exception:
+            pass
     if ok and coupon_code:
         with lod.get_db() as conn:
             c = conn.cursor()
@@ -1854,7 +2003,8 @@ def external_order():
     body = request.get_json(force=True, silent=True) or request.form
     uid = effective_user_id(web_row)
     ok, payload, code = place_order(uid, body.get("category_id") or body.get("product_id"),
-                                     body.get("player_id"), body.get("qty", 1), web_row[2], web_row[1])
+                                     body.get("player_id"), body.get("qty", 1), web_row[2], web_row[1],
+                                     server_id=body.get("server_id") or body.get("serverId") or "")
     payload["status"] = "OK" if ok else "error"
     return jsonify(payload), code
 
@@ -1970,13 +2120,22 @@ def _map_client_status(raw_status, source=None):
 
 
 def _category_to_client_product(cat_row, product_name, product_public_id):
-    """cat_row = (id, name, price, type, min_qty, max_qty, public_id)"""
-    cid, cname, price, ctype, min_qty, max_qty, public_id = cat_row
+    """cat_row = (id, name, price, type, min_qty, max_qty, public_id[, requires_id, requires_server_id])"""
+    requires_id = cat_row[7] if len(cat_row) > 8 else 1
+    requires_server = cat_row[8] if len(cat_row) > 8 else 0
+    cid, cname, price, ctype, min_qty, max_qty, public_id = cat_row[:7]
+    params = []
+    if requires_id:
+        params.append("Enter Player ID")
+    if requires_server:
+        params.append("Enter Server/Zone ID")
+    if not params:
+        params.append("No ID required")
     return {
         "id": public_id,
         "name": cname,
         "price": price,
-        "params": ["Enter Player ID"],
+        "params": params,
         "category_name": product_name,
         "available": True,
         "qty_values": {"min": min_qty, "max": max_qty},
@@ -2006,16 +2165,17 @@ def products_catalog():
     with lod.get_db() as conn:
         c = conn.cursor()
         c.execute("""SELECT c.id, c.name, c.price, c.type, c.min_qty, c.max_qty, c.public_id,
+                            COALESCE(c.requires_id,1), COALESCE(c.requires_server_id,0),
                             p.name, p.public_id
                      FROM categories c JOIN products p ON p.id = c.product_id
                      ORDER BY p.category, p.id, c.id""")
         rows = c.fetchall()
 
     out = []
-    for cid, cname, price, ctype, min_qty, max_qty, cpub, pname, ppub in rows:
+    for cid, cname, price, ctype, min_qty, max_qty, cpub, _req, _reqsrv, pname, ppub in rows:
         if q and q not in cname.lower() and q not in pname.lower() and q not in (cpub or "").lower():
             continue
-        out.append(_category_to_client_product((cid, cname, price, ctype, min_qty, max_qty, cpub), pname, ppub))
+        out.append(_category_to_client_product((cid, cname, price, ctype, min_qty, max_qty, cpub, _req, _reqsrv), pname, ppub))
     return jsonify(out)
 
 
@@ -2031,18 +2191,19 @@ def client_api_products():
     with lod.get_db() as conn:
         c = conn.cursor()
         c.execute("""SELECT c.id, c.name, c.price, c.type, c.min_qty, c.max_qty, c.public_id,
+                            COALESCE(c.requires_id,1), COALESCE(c.requires_server_id,0),
                             p.name, p.public_id
                      FROM categories c JOIN products p ON p.id = c.product_id""")
         rows = c.fetchall()
 
     out = []
-    for cid, cname, price, ctype, min_qty, max_qty, cpub, pname, ppub in rows:
+    for cid, cname, price, ctype, min_qty, max_qty, cpub, _req, _reqsrv, pname, ppub in rows:
         if ids_filter and cpub not in ids_filter:
             continue
         if base_only:
             out.append({"id": cpub, "name": cname})
         else:
-            out.append(_category_to_client_product((cid, cname, price, ctype, min_qty, max_qty, cpub), pname, ppub))
+            out.append(_category_to_client_product((cid, cname, price, ctype, min_qty, max_qty, cpub, _req, _reqsrv), pname, ppub))
     return jsonify(out)
 
 
@@ -2079,8 +2240,9 @@ def client_api_new_order(product_id):
     body = (request.get_json(force=True, silent=True) or request.form.to_dict()) if request.method == "POST" else request.args.to_dict()
     qty = body.get("qty", 1)
     player_id = body.get("playerId", body.get("player_id", ""))
+    server_id = (body.get("server_id") or body.get("serverId") or "").strip()
     order_uuid = (body.get("order_uuid") or "").strip()
-    extra_params = {k: v for k, v in body.items() if k not in ("qty", "playerId", "player_id", "order_uuid")}
+    extra_params = {k: v for k, v in body.items() if k not in ("qty", "playerId", "player_id", "server_id", "serverId", "order_uuid")}
 
     # التحقق من التكرار (idempotency) — نفس order_uuid يرجع نفس نتيجة الطلب الأصلي دون تكراره
     if order_uuid:
@@ -2108,7 +2270,7 @@ def client_api_new_order(product_id):
     if not row:
         return client_api_err(114, 404)
 
-    ok, payload, code = place_order(uid, row[0], player_id, qty, web_row[2], web_row[1])
+    ok, payload, code = place_order(uid, row[0], player_id, qty, web_row[2], web_row[1], server_id=server_id)
     if not ok:
         msg = payload.get("message", "")
         if "غير كافٍ" in msg:
@@ -2118,7 +2280,7 @@ def client_api_new_order(product_id):
         return client_api_err(500, 400, {"detail": msg})
 
     order_db_id = payload["order_id"]
-    custom_json = json.dumps({"playerId": player_id, **extra_params}, ensure_ascii=False)
+    custom_json = json.dumps({"playerId": player_id, **({"server_id": server_id} if server_id else {}), **extra_params}, ensure_ascii=False)
     with lod.get_db() as conn:
         c = conn.cursor()
         c.execute("SELECT 1 FROM api_orders WHERE id = ?", (order_db_id,))
@@ -2554,7 +2716,14 @@ def admin_products():
                 sub_name = row[0] if row else ""
             c.execute("SELECT public_id FROM products WHERE id = ?", (p[0],))
             pub_row = c.fetchone()
+            try:
+                c.execute("SELECT COALESCE(id_label,''), COALESCE(id_hint,'') FROM products WHERE id = ?", (p[0],))
+                _lh = c.fetchone()
+            except Exception:
+                _lh = None
             out.append({"id": p[0], "name": p[1], "category": p[2], "emoji": p[3],
+                         "description": p[4] or "",
+                         "id_label": (_lh[0] if _lh else "") or "", "id_hint": (_lh[1] if _lh else "") or "",
                          "image": p[5] or "", "subsection_id": p[6] or 0, "subsection_name": sub_name,
                          "sort_order": p[7], "categories_count": cnt, "public_id": pub_row[0] if pub_row else ""})
     return jsonify(out)
@@ -2686,12 +2855,13 @@ def admin_product_categories(product_id):
     with lod.get_db() as conn:
         c = conn.cursor()
         c.execute("""SELECT id, name, price, type, min_qty, max_qty, image, public_id, stock_qty, COALESCE(NULLIF(unit_qty, 0), 1),
-                            COALESCE(requires_id, 1)
+                            COALESCE(requires_id, 1), COALESCE(requires_server_id, 0)
                      FROM categories WHERE product_id = ?""", (product_id,))
         rows = c.fetchall()
     return jsonify([{"id": r[0], "name": r[1], "price_usd": r[2], "type": r[3],
                       "min_qty": r[4], "max_qty": r[5], "image": r[6] or "", "public_id": r[7] or "",
-                      "stock_qty": r[8], "unit_qty": r[9], "requires_id": bool(r[10])} for r in rows])
+                      "stock_qty": r[8], "unit_qty": r[9], "requires_id": bool(r[10]),
+                      "requires_server_id": bool(r[11])} for r in rows])
 
 
 @app.post("/api/admin/products/<int:product_id>/categories")
@@ -2711,6 +2881,11 @@ def admin_add_category(product_id):
         c.execute("UPDATE categories SET public_id = ? WHERE id = ?", (public_id, cid))
         requires_id = 0 if str(b.get("requires_id", True)).lower() in ("false", "0", "no") else 1
         c.execute("UPDATE categories SET requires_id = ? WHERE id = ?", (requires_id, cid))
+        try:
+            requires_server = 0 if str(b.get("requires_server_id", False)).lower() in ("false", "0", "no", "") else 1
+            c.execute("UPDATE categories SET requires_server_id = ? WHERE id = ?", (requires_server, cid))
+        except Exception:
+            pass
         stock_val = b.get("stock_qty")
         if stock_val not in (None, ""):
             c.execute("UPDATE categories SET stock_qty = ? WHERE id = ?", (int(stock_val), cid))
@@ -3337,6 +3512,74 @@ def start_order_monitor():
     t.start()
 
 
+@app.get("/api/admin/sync-status")
+@require_admin
+def admin_sync_status():
+    """حالة مزامنة المزوّدين: آخر تشغيل + النتيجة + عدد الفئات المربوطة — للوحة المالك."""
+    with lod.get_db() as conn:
+        c = conn.cursor()
+        try:
+            c.execute("SELECT COUNT(*) FROM linked_products")
+            linked = c.fetchone()[0]
+        except Exception:
+            linked = 0
+        try:
+            c.execute("SELECT COUNT(*) FROM categories WHERE margin_percent IS NOT NULL")
+            with_margin = c.fetchone()[0]
+        except Exception:
+            with_margin = 0
+    return jsonify({
+        "last_run": get_setting("supplier_sync_last_run", ""),
+        "last_result": get_setting("supplier_sync_last_result", ""),
+        "linked_categories": linked,
+        "margin_categories": with_margin,
+        "note": "المزامنة التلقائية تعمل كل 24 ساعة على الخادم الدائم (VPS) فقط — معطّلة على Vercel",
+    })
+
+
+@app.post("/api/admin/sync-run")
+@require_admin
+def admin_sync_run():
+    """تشغيل مزامنة أسعار المزوّدين يدوياً من لوحة المالك (نفس الدالة اليومية)."""
+    try:
+        results = lod.sync_all_margin_prices() or []
+        ok_count = sum(1 for r in results if r.get("ok"))
+        set_setting("supplier_sync_last_run", datetime.now().isoformat())
+        set_setting("supplier_sync_last_result", f"{ok_count}/{len(results)}")
+        return jsonify({"message": f"تمت المزامنة: {ok_count}/{len(results)} فئة", "results": results})
+    except Exception as e:
+        return jsonify({"message": f"فشلت المزامنة: {e}"}), 500
+
+
+@app.get("/api/user/transactions/export")
+@require_auth
+def user_transactions_export():
+    """تصدير سجل العمليات (محفظة + طلبات) بصيغة CSV — سجل حقيقي من قاعدة البيانات."""
+    import csv as _csv
+    import io as _io
+    uid = effective_user_id(request.web_user)
+    buf = _io.StringIO()
+    w = _csv.writer(buf)
+    w.writerow(["date", "kind", "detail", "amount_syp"])
+    with lod.get_db() as conn:
+        c = conn.cursor()
+        c.execute("""SELECT created_at, type, description, amount FROM user_transactions
+                     WHERE user_id = ? ORDER BY created_at DESC LIMIT 1000""", (uid,))
+        for r in c.fetchall():
+            w.writerow([r[0], f"wallet:{r[1]}", r[2], r[3]])
+        c.execute("""SELECT created_at, product_name || ' - ' || category_name, price, status FROM shop_orders
+                     WHERE user_id = ? ORDER BY created_at DESC LIMIT 1000""", (uid,))
+        for r in c.fetchall():
+            w.writerow([r[0], f"shop_order:{r[3]}", r[1], r[2]])
+        c.execute("""SELECT created_at, product_name || ' - ' || category_name, price, status FROM api_orders
+                     WHERE user_id = ? ORDER BY created_at DESC LIMIT 1000""", (uid,))
+        for r in c.fetchall():
+            w.writerow([r[0], f"api_order:{r[3]}", r[1], r[2]])
+    data = "﻿" + buf.getvalue()  # BOM ليعرض العربية صح في Excel
+    return (data, 200, {"Content-Type": "text/csv; charset=utf-8",
+                        "Content-Disposition": "attachment; filename=transactions.csv"})
+
+
 def _daily_price_sync_loop():
     """
     خيط بالخلفية يشتغل مرة كل 24 ساعة: يمر على كل فئة إلها هامش ربح محدد
@@ -3351,6 +3594,9 @@ def _daily_price_sync_loop():
             if results:
                 ok_count = sum(1 for r in results if r["ok"])
                 print(f"[price-sync] تم تحديث {ok_count}/{len(results)} فئة بنجاح")
+            set_setting("supplier_sync_last_run", datetime.now().isoformat())
+            set_setting("supplier_sync_last_result",
+                        f"{sum(1 for r in (results or []) if r['ok'])}/{len(results or [])}")
         except Exception as e:
             print(f"[price-sync] error: {e}")
 
@@ -3398,6 +3644,8 @@ def refresh_order(order_id):
                 lod.update_api_order_status(db_id, new_status, str(replay))
                 if new_status == "failed" and row[5]:
                     lod.update_user_balance(uid, row[5])
+                    _log_wallet_txn(uid, "refund", abs(row[5]),
+                                    f"استرجاع فشل المزوّد: «{row[3]} - {row[4]}» (طلب #{db_id})")
                 return jsonify({"status": new_status, "changed": True, "replay": replay})
     except Exception as e:
         return jsonify({"status": status, "changed": False, "error": str(e)})
@@ -3415,12 +3663,13 @@ def order_detail(order_id):
         c = conn.cursor()
         # نبحث بالطلبات المربوطة بـ API أولاً
         c.execute("""SELECT 'api' as src, o.id, o.order_id, o.product_name, o.category_name,
-                            o.price, o.player_id, o.qty, o.api_response, o.status, o.created_at, o.completed_at
+                            o.price, o.player_id, o.qty, o.api_response, o.status, o.created_at, o.completed_at,
+                            COALESCE(o.custom_params,'')
                      FROM api_orders o WHERE o.id = ? AND o.user_id = ?""", (order_id, uid))
         row = c.fetchone()
         if not row:
             c.execute("""SELECT 'shop' as src, id, '' as ext_id, product_name, category_name,
-                                price, player_id, qty, '' as api_response, status, created_at, completed_at
+                                price, player_id, qty, '' as api_response, status, created_at, completed_at, COALESCE(custom_params,'')
                          FROM shop_orders WHERE id = ? AND user_id = ?""", (order_id, uid))
             row = c.fetchone()
 
@@ -3458,6 +3707,8 @@ def order_detail(order_id):
         "player_id": row[6], "qty": row[7],
         "api_response": row[8] or "",
         "status": UNIFY.get(raw_status, raw_status), "raw_status": raw_status, "date": row[10],
+        "server_id": _server_from_params(row[12] if len(row) > 12 else ""),
+        "is_delayed": _is_delayed_order(raw_status, row[10]),
         "response_time_text": response_time_text,  # None إذا الطلب لسا قيد التنفيذ (ما رد عليه بعد)
     })
 
@@ -3478,6 +3729,16 @@ def admin_edit_product(product_id):
             c.execute("UPDATE products SET category = ? WHERE id = ?", (b["category"], product_id))
         if b.get("emoji") is not None:
             c.execute("UPDATE products SET emoji = ? WHERE id = ?", (b["emoji"], product_id))
+        if b.get("description") is not None:
+            c.execute("UPDATE products SET description = ? WHERE id = ?",
+                      (str(b["description"])[:2000], product_id))
+        for _f in ("id_label", "id_hint"):
+            if b.get(_f) is not None:
+                try:
+                    c.execute(f"UPDATE products SET {_f} = ? WHERE id = ?",
+                              (str(b[_f])[:200], product_id))
+                except Exception:
+                    pass
         if "subsection_id" in b:
             c.execute("UPDATE products SET subsection_id = ? WHERE id = ?", (b.get("subsection_id") or 0, product_id))
     return jsonify({"message": "تم التعديل"})
@@ -3510,6 +3771,12 @@ def admin_edit_category(category_id):
         if "requires_id" in b:
             c.execute("UPDATE categories SET requires_id = ? WHERE id = ?",
                       (0 if str(b["requires_id"]).lower() in ("false", "0", "no") else 1, category_id))
+        if "requires_server_id" in b:
+            try:
+                c.execute("UPDATE categories SET requires_server_id = ? WHERE id = ?",
+                          (0 if str(b["requires_server_id"]).lower() in ("false", "0", "no") else 1, category_id))
+            except Exception:
+                pass
         if "stock_qty" in b:
             val = b["stock_qty"]
             stock_val = None if val in (None, "", "null") else int(val)
@@ -3662,12 +3929,13 @@ def admin_shop_orders():
     with lod.get_db() as conn:
         c = conn.cursor()
         c.execute("""SELECT id, user_id, product_name, category_name, price,
-                            player_id, qty, status, created_at
+                            player_id, qty, status, created_at, COALESCE(custom_params,'')
                      FROM shop_orders ORDER BY created_at DESC LIMIT 200""")
         rows = c.fetchall()
     return jsonify([{
         "id": r[0], "user_id": r[1], "product_name": r[2], "category_name": r[3],
-        "price_syp": r[4], "player_id": r[5], "qty": r[6], "status": r[7], "date": r[8]
+        "price_syp": r[4], "player_id": r[5], "qty": r[6], "status": r[7], "date": r[8],
+        "server_id": _server_from_params(r[9]),
     } for r in rows])
 
 
@@ -3713,6 +3981,7 @@ def admin_reject_shop_order(order_id):
         c.execute("UPDATE shop_orders SET status = 'rejected', completed_at = ? WHERE id = ?", (datetime.utcnow(), order_id))
 
     lod.update_user_balance(uid, price)  # استرجاع الرصيد
+    _log_wallet_txn(uid, "refund", abs(price), f"استرجاع رفض الإدارة: «{pname}» (طلب #{order_id})")
     try:
         lod.send_message(uid,
             f"❌ تم رفض طلبك ({pname}).\n"

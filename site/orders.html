@@ -130,6 +130,13 @@
       <span class="val mono" id="dPlayerId">—</span>
       <span class="lbl">playerId</span>
     </div>
+    <div class="detail-row" id="dServerIdRow" style="display:none;">
+      <span class="val mono" id="dServerId">—</span>
+      <span class="lbl">Server ID</span>
+    </div>
+    <div class="detail-row" id="dDelayedRow" style="display:none;">
+      <span class="val" style="color:#fdba74;">⏳ تجاوز الطلب 10 دقائق بانتظار المزوّد — اضغط «تحديث الحالة» للمتابعة</span>
+    </div>
 
     <div class="detail-row response">
       <div class="top">
@@ -240,6 +247,8 @@
         <div class="order-meta">
           <span><i class="fa-solid fa-tag"></i> ${o.category_name}</span>
           ${o.player_id ? `<span><i class="fa-solid fa-id-card"></i> ${o.player_id}</span>` : ''}
+          ${o.server_id ? `<span><i class="fa-solid fa-server"></i> سيرفر: ${o.server_id}</span>` : ''}
+          ${o.is_delayed ? `<span class="count-pill" style="background:#7c2d12;color:#fed7aa;" title="تجاوز 10 دقائق بانتظار المزوّد — اضغط تحديث">⏳ متأخر</span>` : ''}
           <span><i class="fa-solid fa-cubes"></i> ${o.qty}</span>
           <span><i class="fa-regular fa-clock"></i> ${o.date}</span>
         </div>
@@ -293,6 +302,10 @@
       }else{
         playerRow.style.display = "none";
       }
+      const srvRow = document.getElementById("dServerIdRow");
+      if(d.server_id){ srvRow.style.display = "flex"; document.getElementById("dServerId").textContent = d.server_id; }
+      else{ srvRow.style.display = "none"; }
+      document.getElementById("dDelayedRow").style.display = d.is_delayed ? "flex" : "none";
 
       const chip = document.getElementById("dStatusChip");
       chip.className = "status-badge " + d.raw_status;
