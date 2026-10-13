@@ -94,6 +94,7 @@ def load_api_settings():
     global API_TOKEN, API_BASE_URL
     with get_db() as conn:
         c = conn.cursor()
+        c.execute("CREATE TABLE IF NOT EXISTS settings (id INTEGER PRIMARY KEY AUTOINCREMENT, key TEXT UNIQUE, value TEXT)")
         c.execute("SELECT value FROM settings WHERE key = 'api_token'")
         result = c.fetchone()
         if result:
@@ -139,7 +140,20 @@ def schema_is_current():
         if not os.path.exists(DB_PATH):
             return False
         with open(_SCHEMA_MARKER, "r", encoding="utf-8") as f:
-            return f.read().strip() == SCHEMA_VERSION
+            if f.read().strip() != SCHEMA_VERSION:
+                return False
+        # ملف موجود + ماركر سليم لا يكفي: ملف فارغ (0 جداول) سبق أن علّق الإقلاع
+        # بحلقة "no such table: settings" — نتحقق من وجود الجداول الأساسية فعلاً.
+        if DATABASE_URL:
+            return True
+        import sqlite3 as _sq
+        conn = _sq.connect(DB_PATH, timeout=10)
+        try:
+            tables = {r[0] for r in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'")}
+        finally:
+            conn.close()
+        return {"settings", "users", "products", "categories"} <= tables
     except Exception:
         return False
 
@@ -477,13 +491,14 @@ def _create_schema():
 
 
 def _load_runtime_settings():
-    """يحمّل الإعدادات من قاعدة البيانات للذاكرة (بيشتغل كل إقلاع)."""
-    load_api_settings()
-    load_admins()
-    load_bot_status()
-    load_welcome_message()
-    load_button_mode()
-    load_support_username()
+    """يحمّل الإعدادات من قاعدة البيانات للذاكرة (بيشتغل كل إقلاع).
+    كل محمّل معزول: فشل واحد لا يوقف الإقلاع أبداً (يُعاد التحميل بالإقلاع التالي)."""
+    for _loader in (load_api_settings, load_admins, load_bot_status,
+                    load_welcome_message, load_button_mode, load_support_username):
+        try:
+            _loader()
+        except Exception as e:
+            print(f"[init] {_loader.__name__} skipped: {e}")
 
 # ===== إدارة مزودي API =====
 
